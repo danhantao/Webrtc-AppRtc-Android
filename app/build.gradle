@@ -33,6 +33,6 @@ dependencies {
     implementation "com.android.support:appcompat-v7:${rootProject.ext.androidSupportSdkVersion}"
 
     //implementation 'org.webrtc:google-webrtc:1.0.+'
-    implementation project(':audio_device_java')
-    implementation project(':libjingle_peerconnection')
+//    implementation project(':audio_device_java')
+    implementation project(':webrtc')
 }
