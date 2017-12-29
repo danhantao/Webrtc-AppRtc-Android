@@ -37,7 +37,6 @@ public class UnhandledExceptionHandler implements Thread.UncaughtExceptionHandle
     this.activity = activity;
   }
 
-  @Override
   public void uncaughtException(Thread unusedThread, final Throwable e) {
     activity.runOnUiThread(new Runnable() {
       @Override

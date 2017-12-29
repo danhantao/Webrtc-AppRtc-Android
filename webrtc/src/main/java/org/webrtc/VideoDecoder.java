@@ -21,7 +21,6 @@ public interface VideoDecoder {
     public final int width;
     public final int height;
 
-    @CalledByNative("Settings")
     public Settings(int numberOfCores, int width, int height) {
       this.numberOfCores = numberOfCores;
       this.width = width;
@@ -55,23 +54,20 @@ public interface VideoDecoder {
    * Initializes the decoding process with specified settings. Will be called on the decoding thread
    * before any decode calls.
    */
-  @CalledByNative VideoCodecStatus initDecode(Settings settings, Callback decodeCallback);
+  VideoCodecStatus initDecode(Settings settings, Callback decodeCallback);
   /**
    * Called when the decoder is no longer needed. Any more calls to decode will not be made.
    */
-  @CalledByNative VideoCodecStatus release();
+  VideoCodecStatus release();
   /**
    * Request the decoder to decode a frame.
    */
-  @CalledByNative VideoCodecStatus decode(EncodedImage frame, DecodeInfo info);
+  VideoCodecStatus decode(EncodedImage frame, DecodeInfo info);
   /**
    * The decoder should return true if it prefers late decoding. That is, it can not decode
    * infinite number of frames before the decoded frame is consumed.
    */
-  @CalledByNative boolean getPrefersLateDecoding();
-  /**
-   * Should return a descriptive name for the implementation. Gets called once and cached. May be
-   * called from arbitrary thread.
-   */
-  @CalledByNative String getImplementationName();
+  boolean getPrefersLateDecoding();
+  /** Should return a descriptive name for the implementation. */
+  String getImplementationName();
 }

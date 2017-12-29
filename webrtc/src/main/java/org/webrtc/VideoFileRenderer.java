@@ -15,14 +15,17 @@ import android.os.HandlerThread;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.charset.Charset;
-import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.ArrayList;
 
 /**
  * Can be used to save the video frames to file.
  */
 public class VideoFileRenderer implements VideoRenderer.Callbacks {
+  static {
+    System.loadLibrary("jingle_peerconnection_so");
+  }
+
   private static final String TAG = "VideoFileRenderer";
 
   private final HandlerThread renderThread;
@@ -54,7 +57,7 @@ public class VideoFileRenderer implements VideoRenderer.Callbacks {
     videoOutFile = new FileOutputStream(outputFile);
     videoOutFile.write(
         ("YUV4MPEG2 C420 W" + outputFileWidth + " H" + outputFileHeight + " Ip F30:1 A1:1\n")
-            .getBytes(Charset.forName("US-ASCII")));
+            .getBytes());
 
     renderThread = new HandlerThread(TAG);
     renderThread.start();
@@ -81,9 +84,6 @@ public class VideoFileRenderer implements VideoRenderer.Callbacks {
     });
   }
 
-  // TODO(sakal): yuvConverter.convert is deprecated. This will be removed once this file is updated
-  // to implement VideoSink instead of VideoRenderer.Callbacks.
-  @SuppressWarnings("deprecation")
   private void renderFrameOnRenderThread(VideoRenderer.I420Frame frame) {
     final float frameAspectRatio = (float) frame.rotatedWidth() / (float) frame.rotatedHeight();
 
@@ -94,7 +94,7 @@ public class VideoFileRenderer implements VideoRenderer.Callbacks {
     final float[] texMatrix = RendererCommon.multiplyMatrices(rotatedSamplingMatrix, layoutMatrix);
 
     try {
-      ByteBuffer buffer = JniCommon.allocateNativeByteBuffer(outputFrameSize);
+      ByteBuffer buffer = nativeCreateNativeByteBuffer(outputFrameSize);
       if (!frame.yuvFrame) {
         yuvConverter.convert(outputFrameBuffer, outputFileWidth, outputFileHeight, outputFileWidth,
             frame.textureId, texMatrix);
@@ -146,14 +146,14 @@ public class VideoFileRenderer implements VideoRenderer.Callbacks {
     ThreadUtils.awaitUninterruptibly(cleanupBarrier);
     try {
       for (ByteBuffer buffer : rawFrames) {
-        videoOutFile.write("FRAME\n".getBytes(Charset.forName("US-ASCII")));
+        videoOutFile.write("FRAME\n".getBytes());
 
         byte[] data = new byte[outputFrameSize];
         buffer.get(data);
 
         videoOutFile.write(data);
 
-        JniCommon.freeNativeByteBuffer(buffer);
+        nativeFreeNativeByteBuffer(buffer);
       }
       videoOutFile.close();
       Logging.d(TAG, "Video written to disk as " + outputFileName + ". Number frames are "
@@ -167,4 +167,8 @@ public class VideoFileRenderer implements VideoRenderer.Callbacks {
   public static native void nativeI420Scale(ByteBuffer srcY, int strideY, ByteBuffer srcU,
       int strideU, ByteBuffer srcV, int strideV, int width, int height, ByteBuffer dst,
       int dstWidth, int dstHeight);
+
+  public static native ByteBuffer nativeCreateNativeByteBuffer(int size);
+
+  public static native void nativeFreeNativeByteBuffer(ByteBuffer buffer);
 }

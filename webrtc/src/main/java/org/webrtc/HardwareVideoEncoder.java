@@ -45,7 +45,7 @@ class HardwareVideoEncoder implements VideoEncoder {
 
   private static final int MAX_VIDEO_FRAMERATE = 30;
 
-  // See MAX_ENCODER_Q_SIZE in androidmediaencoder.cc.
+  // See MAX_ENCODER_Q_SIZE in androidmediaencoder_jni.cc.
   private static final int MAX_ENCODER_Q_SIZE = 2;
 
   private static final int MEDIA_CODEC_RELEASE_TIMEOUT_MS = 5000;
@@ -141,9 +141,6 @@ class HardwareVideoEncoder implements VideoEncoder {
     this.forcedKeyFrameNs = TimeUnit.MILLISECONDS.toNanos(forceKeyFrameIntervalMs);
     this.bitrateAdjuster = bitrateAdjuster;
     this.sharedContext = sharedContext;
-
-    // Allow construction on a different thread.
-    encodeThreadChecker.detachThread();
   }
 
   @Override
@@ -265,9 +262,6 @@ class HardwareVideoEncoder implements VideoEncoder {
 
     codec = null;
     outputThread = null;
-
-    // Allow changing thread after release.
-    encodeThreadChecker.detachThread();
 
     return returnValue;
   }
@@ -420,7 +414,8 @@ class HardwareVideoEncoder implements VideoEncoder {
 
   @Override
   public String getImplementationName() {
-    return "HWEncoder";
+    encodeThreadChecker.checkIsOnValidThread();
+    return "HardwareVideoEncoder: " + codecName;
   }
 
   private VideoCodecStatus resetCodec(int newWidth, int newHeight, boolean newUseSurfaceMode) {
@@ -567,27 +562,36 @@ class HardwareVideoEncoder implements VideoEncoder {
   /**
    * Enumeration of supported YUV color formats used for MediaCodec's input.
    */
-  private enum YuvFormat {
+  private static enum YuvFormat {
     I420 {
       @Override
-      void fillBuffer(ByteBuffer dstBuffer, VideoFrame.Buffer srcBuffer) {
-        VideoFrame.I420Buffer i420 = srcBuffer.toI420();
-        YuvHelper.I420Copy(i420.getDataY(), i420.getStrideY(), i420.getDataU(), i420.getStrideU(),
-            i420.getDataV(), i420.getStrideV(), dstBuffer, i420.getWidth(), i420.getHeight());
+      void fillBuffer(ByteBuffer inputBuffer, VideoFrame.Buffer buffer) {
+        VideoFrame.I420Buffer i420 = buffer.toI420();
+        inputBuffer.put(i420.getDataY());
+        inputBuffer.put(i420.getDataU());
+        inputBuffer.put(i420.getDataV());
         i420.release();
       }
     },
     NV12 {
       @Override
-      void fillBuffer(ByteBuffer dstBuffer, VideoFrame.Buffer srcBuffer) {
-        VideoFrame.I420Buffer i420 = srcBuffer.toI420();
-        YuvHelper.I420ToNV12(i420.getDataY(), i420.getStrideY(), i420.getDataU(), i420.getStrideU(),
-            i420.getDataV(), i420.getStrideV(), dstBuffer, i420.getWidth(), i420.getHeight());
+      void fillBuffer(ByteBuffer inputBuffer, VideoFrame.Buffer buffer) {
+        VideoFrame.I420Buffer i420 = buffer.toI420();
+        inputBuffer.put(i420.getDataY());
+
+        // Interleave the bytes from the U and V portions, starting with U.
+        ByteBuffer u = i420.getDataU();
+        ByteBuffer v = i420.getDataV();
+        int i = 0;
+        while (u.hasRemaining() && v.hasRemaining()) {
+          inputBuffer.put(u.get());
+          inputBuffer.put(v.get());
+        }
         i420.release();
       }
     };
 
-    abstract void fillBuffer(ByteBuffer dstBuffer, VideoFrame.Buffer srcBuffer);
+    abstract void fillBuffer(ByteBuffer inputBuffer, VideoFrame.Buffer buffer);
 
     static YuvFormat valueOf(int colorFormat) {
       switch (colorFormat) {

@@ -67,7 +67,6 @@ public class RTCStats {
     return members;
   }
 
-  @Override
   public String toString() {
     StringBuilder builder = new StringBuilder();
     builder.append("{ timestampUs: ")
@@ -102,12 +101,5 @@ public class RTCStats {
     } else {
       builder.append(value);
     }
-  }
-
-  // TODO(bugs.webrtc.org/8557) Use ctor directly with full Map type.
-  @SuppressWarnings("unchecked")
-  @CalledByNative
-  static RTCStats create(long timestampUs, String type, String id, Map members) {
-    return new RTCStats(timestampUs, type, id, members);
   }
 }

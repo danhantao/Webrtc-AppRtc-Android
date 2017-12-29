@@ -28,7 +28,6 @@ public class SessionDescription {
       return name().toLowerCase(Locale.US);
     }
 
-    @CalledByNative("Type")
     public static Type fromCanonicalForm(String canonical) {
       return Type.valueOf(Type.class, canonical.toUpperCase(Locale.US));
     }
@@ -37,19 +36,8 @@ public class SessionDescription {
   public final Type type;
   public final String description;
 
-  @CalledByNative
   public SessionDescription(Type type, String description) {
     this.type = type;
     this.description = description;
-  }
-
-  @CalledByNative
-  String getDescription() {
-    return description;
-  }
-
-  @CalledByNative
-  String getTypeInCanonicalForm() {
-    return type.canonicalForm();
   }
 }

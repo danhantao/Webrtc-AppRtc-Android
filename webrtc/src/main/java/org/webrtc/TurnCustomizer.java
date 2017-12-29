@@ -19,13 +19,9 @@ public class TurnCustomizer {
   }
 
   public void dispose() {
-    freeNativeTurnCustomizer(nativeTurnCustomizer);
+    nativeFreeTurnCustomizer(nativeTurnCustomizer);
   }
 
-  private static native void freeNativeTurnCustomizer(long nativeTurnCustomizer);
-
-  @CalledByNative
-  long getNativeTurnCustomizer() {
-    return nativeTurnCustomizer;
-  }
+  private static native void nativeFreeTurnCustomizer(
+      long nativeTurnCustomizer);
 }

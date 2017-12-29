@@ -33,6 +33,7 @@ import java.util.concurrent.TimeUnit;
 public class EglRenderer implements VideoRenderer.Callbacks, VideoSink {
   private static final String TAG = "EglRenderer";
   private static final long LOG_INTERVAL_SEC = 4;
+  private static final int MAX_SURFACE_CLEAR_COUNT = 3;
 
   public interface FrameListener { void onFrame(Bitmap frame); }
 
@@ -54,15 +55,11 @@ public class EglRenderer implements VideoRenderer.Callbacks, VideoSink {
   private class EglSurfaceCreation implements Runnable {
     private Object surface;
 
-    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
-    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void setSurface(Object surface) {
       this.surface = surface;
     }
 
     @Override
-    // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
-    @SuppressWarnings("NoSynchronizedMethodCheck")
     public synchronized void run() {
       if (surface != null && eglBase != null && !eglBase.hasSurface()) {
         if (surface instanceof Surface) {
@@ -79,7 +76,7 @@ public class EglRenderer implements VideoRenderer.Callbacks, VideoSink {
     }
   }
 
-  protected final String name;
+  private final String name;
 
   // |renderThreadHandler| is a handler for communicating with |renderThread|, and is synchronized
   // on |handlerLock|.
@@ -242,7 +239,6 @@ public class EglRenderer implements VideoRenderer.Callbacks, VideoSink {
           eglBase.release();
           eglBase = null;
         }
-        frameListeners.clear();
         eglCleanupBarrier.countDown();
       });
       final Looper renderLooper = renderThreadHandler.getLooper();
@@ -401,24 +397,19 @@ public class EglRenderer implements VideoRenderer.Callbacks, VideoSink {
    * @param runnable The callback to remove.
    */
   public void removeFrameListener(final FrameListener listener) {
-    final CountDownLatch latch = new CountDownLatch(1);
-    synchronized (handlerLock) {
-      if (renderThreadHandler == null) {
-        return;
-      }
-      if (Thread.currentThread() == renderThreadHandler.getLooper().getThread()) {
-        throw new RuntimeException("removeFrameListener must not be called on the render thread.");
-      }
-      postToRenderThread(() -> {
-        latch.countDown();
-        final Iterator<FrameListenerAndParams> iter = frameListeners.iterator();
-        while (iter.hasNext()) {
-          if (iter.next().listener == listener) {
-            iter.remove();
-          }
-        }
-      });
+    if (Thread.currentThread() == renderThreadHandler.getLooper().getThread()) {
+      throw new RuntimeException("removeFrameListener must not be called on the render thread.");
     }
+    final CountDownLatch latch = new CountDownLatch(1);
+    postToRenderThread(() -> {
+      latch.countDown();
+      final Iterator<FrameListenerAndParams> iter = frameListeners.iterator();
+      while (iter.hasNext()) {
+        if (iter.next().listener == listener) {
+          iter.remove();
+        }
+      }
+    });
     ThreadUtils.awaitUninterruptibly(latch);
   }
 

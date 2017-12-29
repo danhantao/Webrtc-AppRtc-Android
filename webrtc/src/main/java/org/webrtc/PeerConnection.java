@@ -10,8 +10,8 @@
 
 package org.webrtc;
 
-import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedList;
 import java.util.List;
 
 /**
@@ -21,17 +21,12 @@ import java.util.List;
  * http://www.w3.org/TR/mediacapture-streams/
  */
 public class PeerConnection {
-  /** Tracks PeerConnectionInterface::IceGatheringState */
-  public enum IceGatheringState {
-    NEW,
-    GATHERING,
-    COMPLETE;
-
-    @CalledByNative("IceGatheringState")
-    static IceGatheringState fromNativeIndex(int nativeIndex) {
-      return values()[nativeIndex];
-    }
+  static {
+    System.loadLibrary("jingle_peerconnection_so");
   }
+
+  /** Tracks PeerConnectionInterface::IceGatheringState */
+  public enum IceGatheringState { NEW, GATHERING, COMPLETE }
 
   /** Tracks PeerConnectionInterface::IceConnectionState */
   public enum IceConnectionState {
@@ -41,12 +36,7 @@ public class PeerConnection {
     COMPLETED,
     FAILED,
     DISCONNECTED,
-    CLOSED;
-
-    @CalledByNative("IceConnectionState")
-    static IceConnectionState fromNativeIndex(int nativeIndex) {
-      return values()[nativeIndex];
-    }
+    CLOSED
   }
 
   /** Tracks PeerConnectionInterface::TlsCertPolicy */
@@ -62,51 +52,46 @@ public class PeerConnection {
     HAVE_LOCAL_PRANSWER,
     HAVE_REMOTE_OFFER,
     HAVE_REMOTE_PRANSWER,
-    CLOSED;
-
-    @CalledByNative("SignalingState")
-    static SignalingState fromNativeIndex(int nativeIndex) {
-      return values()[nativeIndex];
-    }
+    CLOSED
   }
 
   /** Java version of PeerConnectionObserver. */
   public static interface Observer {
     /** Triggered when the SignalingState changes. */
-    @CalledByNative("Observer") void onSignalingChange(SignalingState newState);
+    public void onSignalingChange(SignalingState newState);
 
     /** Triggered when the IceConnectionState changes. */
-    @CalledByNative("Observer") void onIceConnectionChange(IceConnectionState newState);
+    public void onIceConnectionChange(IceConnectionState newState);
 
     /** Triggered when the ICE connection receiving status changes. */
-    @CalledByNative("Observer") void onIceConnectionReceivingChange(boolean receiving);
+    public void onIceConnectionReceivingChange(boolean receiving);
 
     /** Triggered when the IceGatheringState changes. */
-    @CalledByNative("Observer") void onIceGatheringChange(IceGatheringState newState);
+    public void onIceGatheringChange(IceGatheringState newState);
 
     /** Triggered when a new ICE candidate has been found. */
-    @CalledByNative("Observer") void onIceCandidate(IceCandidate candidate);
+    public void onIceCandidate(IceCandidate candidate);
 
     /** Triggered when some ICE candidates have been removed. */
-    @CalledByNative("Observer") void onIceCandidatesRemoved(IceCandidate[] candidates);
+    public void onIceCandidatesRemoved(IceCandidate[] candidates);
 
     /** Triggered when media is received on a new stream from remote peer. */
-    @CalledByNative("Observer") void onAddStream(MediaStream stream);
+    public void onAddStream(MediaStream stream);
 
     /** Triggered when a remote peer close a stream. */
-    @CalledByNative("Observer") void onRemoveStream(MediaStream stream);
+    public void onRemoveStream(MediaStream stream);
 
     /** Triggered when a remote peer opens a DataChannel. */
-    @CalledByNative("Observer") void onDataChannel(DataChannel dataChannel);
+    public void onDataChannel(DataChannel dataChannel);
 
     /** Triggered when renegotiation is necessary. */
-    @CalledByNative("Observer") void onRenegotiationNeeded();
+    public void onRenegotiationNeeded();
 
     /**
      * Triggered when a new track is signaled by the remote peer, as a result of
      * setRemoteDescription.
      */
-    @CalledByNative("Observer") void onAddTrack(RtpReceiver receiver, MediaStream[] mediaStreams);
+    public void onAddTrack(RtpReceiver receiver, MediaStream[] mediaStreams);
   }
 
   /** Java version of PeerConnectionInterface.IceServer. */
@@ -186,7 +171,6 @@ public class PeerConnection {
       this.tlsEllipticCurves = tlsEllipticCurves;
     }
 
-    @Override
     public String toString() {
       return urls + " [" + username + ":" + password + "] [" + tlsCertPolicy + "] [" + hostname
           + "] [" + tlsAlpnProtocols + "] [" + tlsEllipticCurves + "]";
@@ -251,41 +235,6 @@ public class PeerConnection {
             tlsAlpnProtocols, tlsEllipticCurves);
       }
     }
-
-    @CalledByNative("IceServer")
-    List<String> getUrls() {
-      return urls;
-    }
-
-    @CalledByNative("IceServer")
-    String getUsername() {
-      return username;
-    }
-
-    @CalledByNative("IceServer")
-    String getPassword() {
-      return password;
-    }
-
-    @CalledByNative("IceServer")
-    TlsCertPolicy getTlsCertPolicy() {
-      return tlsCertPolicy;
-    }
-
-    @CalledByNative("IceServer")
-    String getHostname() {
-      return hostname;
-    }
-
-    @CalledByNative("IceServer")
-    List<String> getTlsAlpnProtocols() {
-      return tlsAlpnProtocols;
-    }
-
-    @CalledByNative("IceServer")
-    List<String> getTlsEllipticCurves() {
-      return tlsEllipticCurves;
-    }
   }
 
   /** Java version of PeerConnectionInterface.IceTransportsType */
@@ -319,12 +268,10 @@ public class PeerConnection {
       this.max = max;
     }
 
-    @CalledByNative("IntervalRange")
     public int getMin() {
       return min;
     }
 
-    @CalledByNative("IntervalRange")
     public int getMax() {
       return max;
     }
@@ -368,7 +315,7 @@ public class PeerConnection {
       bundlePolicy = BundlePolicy.BALANCED;
       rtcpMuxPolicy = RtcpMuxPolicy.REQUIRE;
       tcpCandidatePolicy = TcpCandidatePolicy.ENABLED;
-      candidateNetworkPolicy = CandidateNetworkPolicy.ALL;
+      candidateNetworkPolicy = candidateNetworkPolicy.ALL;
       this.iceServers = iceServers;
       audioJitterBufferMaxPackets = 50;
       audioJitterBufferFastAccelerate = false;
@@ -384,117 +331,20 @@ public class PeerConnection {
       maxIPv6Networks = 5;
       iceRegatherIntervalRange = null;
     }
-
-    @CalledByNative("RTCConfiguration")
-    IceTransportsType getIceTransportsType() {
-      return iceTransportsType;
-    }
-
-    @CalledByNative("RTCConfiguration")
-    List<IceServer> getIceServers() {
-      return iceServers;
-    }
-
-    @CalledByNative("RTCConfiguration")
-    BundlePolicy getBundlePolicy() {
-      return bundlePolicy;
-    }
-
-    @CalledByNative("RTCConfiguration")
-    RtcpMuxPolicy getRtcpMuxPolicy() {
-      return rtcpMuxPolicy;
-    }
-
-    @CalledByNative("RTCConfiguration")
-    TcpCandidatePolicy getTcpCandidatePolicy() {
-      return tcpCandidatePolicy;
-    }
-
-    @CalledByNative("RTCConfiguration")
-    CandidateNetworkPolicy getCandidateNetworkPolicy() {
-      return candidateNetworkPolicy;
-    }
-
-    @CalledByNative("RTCConfiguration")
-    int getAudioJitterBufferMaxPackets() {
-      return audioJitterBufferMaxPackets;
-    }
-
-    @CalledByNative("RTCConfiguration")
-    boolean getAudioJitterBufferFastAccelerate() {
-      return audioJitterBufferFastAccelerate;
-    }
-
-    @CalledByNative("RTCConfiguration")
-    int getIceConnectionReceivingTimeout() {
-      return iceConnectionReceivingTimeout;
-    }
-
-    @CalledByNative("RTCConfiguration")
-    int getIceBackupCandidatePairPingInterval() {
-      return iceBackupCandidatePairPingInterval;
-    }
-
-    @CalledByNative("RTCConfiguration")
-    KeyType getKeyType() {
-      return keyType;
-    }
-
-    @CalledByNative("RTCConfiguration")
-    ContinualGatheringPolicy getContinualGatheringPolicy() {
-      return continualGatheringPolicy;
-    }
-
-    @CalledByNative("RTCConfiguration")
-    int getIceCandidatePoolSize() {
-      return iceCandidatePoolSize;
-    }
-
-    @CalledByNative("RTCConfiguration")
-    boolean getPruneTurnPorts() {
-      return pruneTurnPorts;
-    }
-
-    @CalledByNative("RTCConfiguration")
-    boolean getPresumeWritableWhenFullyRelayed() {
-      return presumeWritableWhenFullyRelayed;
-    }
-
-    @CalledByNative("RTCConfiguration")
-    Integer getIceCheckMinInterval() {
-      return iceCheckMinInterval;
-    }
-
-    @CalledByNative("RTCConfiguration")
-    boolean getDisableIPv6OnWifi() {
-      return disableIPv6OnWifi;
-    }
-
-    @CalledByNative("RTCConfiguration")
-    int getMaxIPv6Networks() {
-      return maxIPv6Networks;
-    }
-
-    @CalledByNative("RTCConfiguration")
-    IntervalRange getIceRegatherIntervalRange() {
-      return iceRegatherIntervalRange;
-    }
-
-    @CalledByNative("RTCConfiguration")
-    TurnCustomizer getTurnCustomizer() {
-      return turnCustomizer;
-    }
   };
 
-  private final List<MediaStream> localStreams = new ArrayList<>();
+  private final List<MediaStream> localStreams;
   private final long nativePeerConnection;
   private final long nativeObserver;
-  private List<RtpSender> senders = new ArrayList<>();
-  private List<RtpReceiver> receivers = new ArrayList<>();
+  private List<RtpSender> senders;
+  private List<RtpReceiver> receivers;
 
   PeerConnection(long nativePeerConnection, long nativeObserver) {
     this.nativePeerConnection = nativePeerConnection;
     this.nativeObserver = nativeObserver;
+    localStreams = new LinkedList<MediaStream>();
+    senders = new LinkedList<RtpSender>();
+    receivers = new LinkedList<RtpReceiver>();
   }
 
   // JsepInterface.
@@ -512,32 +362,20 @@ public class PeerConnection {
 
   public native void setRemoteDescription(SdpObserver observer, SessionDescription sdp);
 
-  // True if remote audio should be played out. Defaults to true.
-  // Note that even if playout is enabled, streams will only be played out if
-  // the appropriate SDP is also applied. The main purpose of this API is to
-  // be able to control the exact time when audio playout starts.
-  public native void setAudioPlayout(boolean playout);
-
-  // True if local audio shall be recorded. Defaults to true.
-  // Note that even if recording is enabled, streams will only be recorded if
-  // the appropriate SDP is also applied. The main purpose of this API is to
-  // be able to control the exact time when audio recording starts.
-  public native void setAudioRecording(boolean recording);
-
   public boolean setConfiguration(RTCConfiguration config) {
-    return setNativeConfiguration(config, nativeObserver);
+    return nativeSetConfiguration(config, nativeObserver);
   }
 
   public boolean addIceCandidate(IceCandidate candidate) {
-    return addNativeIceCandidate(candidate.sdpMid, candidate.sdpMLineIndex, candidate.sdp);
+    return nativeAddIceCandidate(candidate.sdpMid, candidate.sdpMLineIndex, candidate.sdp);
   }
 
   public boolean removeIceCandidates(final IceCandidate[] candidates) {
-    return removeNativeIceCandidates(candidates);
+    return nativeRemoveIceCandidates(candidates);
   }
 
   public boolean addStream(MediaStream stream) {
-    boolean ret = addNativeLocalStream(stream.nativeStream);
+    boolean ret = nativeAddLocalStream(stream.nativeStream);
     if (!ret) {
       return false;
     }
@@ -546,7 +384,7 @@ public class PeerConnection {
   }
 
   public void removeStream(MediaStream stream) {
-    removeNativeLocalStream(stream.nativeStream);
+    nativeRemoveLocalStream(stream.nativeStream);
     localStreams.remove(stream);
   }
 
@@ -588,7 +426,7 @@ public class PeerConnection {
    * @return          A new RtpSender object if successful, or null otherwise.
    */
   public RtpSender createSender(String kind, String stream_id) {
-    RtpSender new_sender = createNativeSender(kind, stream_id);
+    RtpSender new_sender = nativeCreateSender(kind, stream_id);
     if (new_sender != null) {
       senders.add(new_sender);
     }
@@ -601,7 +439,7 @@ public class PeerConnection {
     for (RtpSender sender : senders) {
       sender.dispose();
     }
-    senders = getNativeSenders();
+    senders = nativeGetSenders();
     return Collections.unmodifiableList(senders);
   }
 
@@ -609,20 +447,20 @@ public class PeerConnection {
     for (RtpReceiver receiver : receivers) {
       receiver.dispose();
     }
-    receivers = getNativeReceivers();
+    receivers = nativeGetReceivers();
     return Collections.unmodifiableList(receivers);
   }
 
   // Older, non-standard implementation of getStats.
   @Deprecated
   public boolean getStats(StatsObserver observer, MediaStreamTrack track) {
-    return oldGetNativeStats(observer, (track == null) ? 0 : track.nativeTrack);
+    return nativeOldGetStats(observer, (track == null) ? 0 : track.nativeTrack);
   }
 
   // Gets stats using the new stats collection API, see webrtc/api/stats/. These
   // will replace old stats collection API when the new API has matured enough.
   public void getStats(RTCStatsCollectorCallback callback) {
-    newGetNativeStats(callback);
+    nativeNewGetStats(callback);
   }
 
   // Limits the bandwidth allocated for all RTP streams sent by this
@@ -635,13 +473,13 @@ public class PeerConnection {
   // continue until the stopRtcEventLog function is called. The max_size_bytes
   // argument is ignored, it is added for future use.
   public boolean startRtcEventLog(int file_descriptor, int max_size_bytes) {
-    return startNativeRtcEventLog(file_descriptor, max_size_bytes);
+    return nativeStartRtcEventLog(file_descriptor, max_size_bytes);
   }
 
   // Stops recording an RTC event log. If no RTC event log is currently being
   // recorded, this call will have no effect.
   public void stopRtcEventLog() {
-    stopNativeRtcEventLog();
+    nativeStopRtcEventLog();
   }
 
   // TODO(fischman): add support for DTMF-related methods once that API
@@ -673,7 +511,7 @@ public class PeerConnection {
   public void dispose() {
     close();
     for (MediaStream stream : localStreams) {
-      removeNativeLocalStream(stream.nativeStream);
+      nativeRemoveLocalStream(stream.nativeStream);
       stream.dispose();
     }
     localStreams.clear();
@@ -689,35 +527,30 @@ public class PeerConnection {
     freeObserver(nativeObserver);
   }
 
-  @CalledByNative
-  long getNativePeerConnection() {
-    return nativePeerConnection;
-  }
-
   private static native void freeObserver(long nativeObserver);
 
-  private native boolean setNativeConfiguration(RTCConfiguration config, long nativeObserver);
+  public native boolean nativeSetConfiguration(RTCConfiguration config, long nativeObserver);
 
-  private native boolean addNativeIceCandidate(
+  private native boolean nativeAddIceCandidate(
       String sdpMid, int sdpMLineIndex, String iceCandidateSdp);
 
-  private native boolean removeNativeIceCandidates(final IceCandidate[] candidates);
+  private native boolean nativeRemoveIceCandidates(final IceCandidate[] candidates);
 
-  private native boolean addNativeLocalStream(long nativeStream);
+  private native boolean nativeAddLocalStream(long nativeStream);
 
-  private native void removeNativeLocalStream(long nativeStream);
+  private native void nativeRemoveLocalStream(long nativeStream);
 
-  private native boolean oldGetNativeStats(StatsObserver observer, long nativeTrack);
+  private native boolean nativeOldGetStats(StatsObserver observer, long nativeTrack);
 
-  private native void newGetNativeStats(RTCStatsCollectorCallback callback);
+  private native void nativeNewGetStats(RTCStatsCollectorCallback callback);
 
-  private native RtpSender createNativeSender(String kind, String stream_id);
+  private native RtpSender nativeCreateSender(String kind, String stream_id);
 
-  private native List<RtpSender> getNativeSenders();
+  private native List<RtpSender> nativeGetSenders();
 
-  private native List<RtpReceiver> getNativeReceivers();
+  private native List<RtpReceiver> nativeGetReceivers();
 
-  private native boolean startNativeRtcEventLog(int file_descriptor, int max_size_bytes);
+  private native boolean nativeStartRtcEventLog(int file_descriptor, int max_size_bytes);
 
-  private native void stopNativeRtcEventLog();
+  private native void nativeStopRtcEventLog();
 }

@@ -28,6 +28,7 @@ import java.util.Map;
  * Fragment for HUD statistics display.
  */
 public class HudFragment extends Fragment {
+  private View controlView;
   private TextView encoderStatView;
   private TextView hudViewBwe;
   private TextView hudViewConnection;
@@ -42,15 +43,15 @@ public class HudFragment extends Fragment {
   @Override
   public View onCreateView(
       LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
-    View controlView = inflater.inflate(R.layout.fragment_hud, container, false);
+    controlView = inflater.inflate(R.layout.fragment_hud, container, false);
 
     // Create UI controls.
-    encoderStatView = controlView.findViewById(R.id.encoder_stat_call);
-    hudViewBwe = controlView.findViewById(R.id.hud_stat_bwe);
-    hudViewConnection = controlView.findViewById(R.id.hud_stat_connection);
-    hudViewVideoSend = controlView.findViewById(R.id.hud_stat_video_send);
-    hudViewVideoRecv = controlView.findViewById(R.id.hud_stat_video_recv);
-    toggleDebugButton = controlView.findViewById(R.id.button_toggle_debug);
+    encoderStatView = (TextView) controlView.findViewById(R.id.encoder_stat_call);
+    hudViewBwe = (TextView) controlView.findViewById(R.id.hud_stat_bwe);
+    hudViewConnection = (TextView) controlView.findViewById(R.id.hud_stat_connection);
+    hudViewVideoSend = (TextView) controlView.findViewById(R.id.hud_stat_video_send);
+    hudViewVideoRecv = (TextView) controlView.findViewById(R.id.hud_stat_video_recv);
+    toggleDebugButton = (ImageButton) controlView.findViewById(R.id.button_toggle_debug);
 
     toggleDebugButton.setOnClickListener(new View.OnClickListener() {
       @Override
@@ -104,7 +105,7 @@ public class HudFragment extends Fragment {
   }
 
   private Map<String, String> getReportMap(StatsReport report) {
-    Map<String, String> reportMap = new HashMap<>();
+    Map<String, String> reportMap = new HashMap<String, String>();
     for (StatsReport.Value value : report.values) {
       reportMap.put(value.name, value.value);
     }
