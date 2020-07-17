@@ -10,28 +10,40 @@
 
 package org.webrtc;
 
+import android.support.annotation.Nullable;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.EnumSet;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import org.webrtc.Loggable;
 
 /**
- * Java wrapper for WebRTC logging. Logging defaults to java.util.logging.Logger, but will switch to
- * native logging (rtc::LogMessage) if one of the following static functions are called from the
- * app:
+ * Java wrapper for WebRTC logging. Logging defaults to java.util.logging.Logger, but a custom
+ * logger implementing the Loggable interface can be injected along with a Severity. All subsequent
+ * log messages will then be redirected to the injected Loggable, except those with a severity lower
+ * than the specified severity, which will be discarded.
+ *
+ * It is also possible to switch to native logging (rtc::LogMessage) if one of the following static
+ * functions are called from the app:
  * - Logging.enableLogThreads
  * - Logging.enableLogTimeStamps
  * - Logging.enableLogToDebugOutput
  *
- * Using these APIs requires that the native library is loaded, using
- * PeerConnectionFactory.initialize.
+ * The priority goes:
+ * 1. Injected loggable
+ * 2. Native logging
+ * 3. Fallback logging.
+ * Only one method will be used at a time.
+ *
+ * Injecting a Loggable or using any of the enable... methods requires that the native library is
+ * loaded, using PeerConnectionFactory.initialize.
  */
 public class Logging {
   private static final Logger fallbackLogger = createFallbackLogger();
   private static volatile boolean loggingEnabled;
-  private static enum NativeLibStatus { UNINITIALIZED, LOADED, FAILED }
-  private static volatile NativeLibStatus nativeLibStatus = NativeLibStatus.UNINITIALIZED;
+  @Nullable private static Loggable loggable;
+  private static Severity loggableSeverity;
 
   private static Logger createFallbackLogger() {
     final Logger fallbackLogger = Logger.getLogger("org.webrtc.Logging");
@@ -39,17 +51,15 @@ public class Logging {
     return fallbackLogger;
   }
 
-  private static boolean loadNativeLibrary() {
-    if (nativeLibStatus == NativeLibStatus.UNINITIALIZED) {
-      try {
-        System.loadLibrary("jingle_peerconnection_so");
-        nativeLibStatus = NativeLibStatus.LOADED;
-      } catch (UnsatisfiedLinkError t) {
-        nativeLibStatus = NativeLibStatus.FAILED;
-        fallbackLogger.log(Level.WARNING, "Failed to load jingle_peerconnection_so: ", t);
-      }
+  static void injectLoggable(Loggable injectedLoggable, Severity severity) {
+    if (injectedLoggable != null) {
+      loggable = injectedLoggable;
+      loggableSeverity = severity;
     }
-    return nativeLibStatus == NativeLibStatus.LOADED;
+  }
+
+  static void deleteInjectedLoggable() {
+    loggable = null;
   }
 
   // TODO(solenberg): Remove once dependent projects updated.
@@ -78,22 +88,13 @@ public class Logging {
   }
 
   // Keep in sync with webrtc/rtc_base/logging.h:LoggingSeverity.
-  public enum Severity { LS_SENSITIVE, LS_VERBOSE, LS_INFO, LS_WARNING, LS_ERROR, LS_NONE }
+  public enum Severity { LS_VERBOSE, LS_INFO, LS_WARNING, LS_ERROR, LS_NONE }
 
   public static void enableLogThreads() {
-    if (!loadNativeLibrary()) {
-      fallbackLogger.log(Level.WARNING, "Cannot enable log thread because native lib not loaded.");
-      return;
-    }
     nativeEnableLogThreads();
   }
 
   public static void enableLogTimeStamps() {
-    if (!loadNativeLibrary()) {
-      fallbackLogger.log(
-          Level.WARNING, "Cannot enable log timestamps because native lib not loaded.");
-      return;
-    }
     nativeEnableLogTimeStamps();
   }
 
@@ -103,17 +104,33 @@ public class Logging {
 
   // Enable diagnostic logging for messages of |severity| to the platform debug
   // output. On Android, the output will be directed to Logcat.
-  // Note: this function starts collecting the output of the LOG() macros.
+  // Note: this function starts collecting the output of the RTC_LOG() macros.
+  // TODO(bugs.webrtc.org/8491): Remove NoSynchronizedMethodCheck suppression.
+  @SuppressWarnings("NoSynchronizedMethodCheck")
   public static synchronized void enableLogToDebugOutput(Severity severity) {
-    if (!loadNativeLibrary()) {
-      fallbackLogger.log(Level.WARNING, "Cannot enable logging because native lib not loaded.");
-      return;
+    if (loggable != null) {
+      throw new IllegalStateException(
+          "Logging to native debug output not supported while Loggable is injected. "
+          + "Delete the Loggable before calling this method.");
     }
     nativeEnableLogToDebugOutput(severity.ordinal());
     loggingEnabled = true;
   }
 
   public static void log(Severity severity, String tag, String message) {
+    if (tag == null || message == null) {
+      throw new IllegalArgumentException("Logging tag or message may not be null.");
+    }
+    if (loggable != null) {
+      // Filter log messages below loggableSeverity.
+      if (severity.ordinal() < loggableSeverity.ordinal()) {
+        return;
+      }
+      loggable.onLogMessage(message, severity, tag);
+      return;
+    }
+
+    // Try native logging if no loggable is injected.
     if (loggingEnabled) {
       nativeLog(severity.ordinal(), tag, message);
       return;

@@ -11,33 +11,73 @@
 package org.webrtc;
 
 import android.graphics.Matrix;
-import java.nio.ByteBuffer;
+import android.os.Handler;
+import android.support.annotation.Nullable;
 
 /**
- * Android texture buffer backed by a SurfaceTextureHelper's texture. The buffer calls
- * |releaseCallback| when it is released.
+ * Android texture buffer that glues together the necessary information together with a generic
+ * release callback. ToI420() is implemented by providing a Handler and a YuvConverter.
  */
-class TextureBufferImpl implements VideoFrame.TextureBuffer {
+public class TextureBufferImpl implements VideoFrame.TextureBuffer {
+  interface RefCountMonitor {
+    void onRetain(TextureBufferImpl textureBuffer);
+    void onRelease(TextureBufferImpl textureBuffer);
+    void onDestroy(TextureBufferImpl textureBuffer);
+  }
+
+  // This is the full resolution the texture has in memory after applying the transformation matrix
+  // that might include cropping. This resolution is useful to know when sampling the texture to
+  // avoid downscaling artifacts.
+  private final int unscaledWidth;
+  private final int unscaledHeight;
+  // This is the resolution that has been applied after cropAndScale().
   private final int width;
   private final int height;
   private final Type type;
   private final int id;
   private final Matrix transformMatrix;
-  private final SurfaceTextureHelper surfaceTextureHelper;
-  private final Runnable releaseCallback;
-  private final Object refCountLock = new Object();
-  private int refCount;
+  private final Handler toI420Handler;
+  private final YuvConverter yuvConverter;
+  private final RefCountDelegate refCountDelegate;
+  private final @Nullable RefCountMonitor refCountMonitor;
 
   public TextureBufferImpl(int width, int height, Type type, int id, Matrix transformMatrix,
-      SurfaceTextureHelper surfaceTextureHelper, Runnable releaseCallback) {
+      Handler toI420Handler, YuvConverter yuvConverter, @Nullable Runnable releaseCallback) {
+    this(width, height, width, height, type, id, transformMatrix, toI420Handler, yuvConverter,
+        new RefCountMonitor() {
+          @Override
+          public void onRetain(TextureBufferImpl textureBuffer) {}
+
+          @Override
+          public void onRelease(TextureBufferImpl textureBuffer) {}
+
+          @Override
+          public void onDestroy(TextureBufferImpl textureBuffer) {
+            releaseCallback.run();
+          }
+        });
+  }
+
+  TextureBufferImpl(int width, int height, Type type, int id, Matrix transformMatrix,
+      Handler toI420Handler, YuvConverter yuvConverter, RefCountMonitor refCountMonitor) {
+    this(width, height, width, height, type, id, transformMatrix, toI420Handler, yuvConverter,
+        refCountMonitor);
+  }
+
+  private TextureBufferImpl(int unscaledWidth, int unscaledHeight, int width, int height, Type type,
+      int id, Matrix transformMatrix, Handler toI420Handler, YuvConverter yuvConverter,
+      RefCountMonitor refCountMonitor) {
+    this.unscaledWidth = unscaledWidth;
+    this.unscaledHeight = unscaledHeight;
     this.width = width;
     this.height = height;
     this.type = type;
     this.id = id;
     this.transformMatrix = transformMatrix;
-    this.surfaceTextureHelper = surfaceTextureHelper;
-    this.releaseCallback = releaseCallback;
-    this.refCount = 1; // Creator implicitly holds a reference.
+    this.toI420Handler = toI420Handler;
+    this.yuvConverter = yuvConverter;
+    this.refCountDelegate = new RefCountDelegate(() -> refCountMonitor.onDestroy(this));
+    this.refCountMonitor = refCountMonitor;
   }
 
   @Override
@@ -67,71 +107,92 @@ class TextureBufferImpl implements VideoFrame.TextureBuffer {
 
   @Override
   public VideoFrame.I420Buffer toI420() {
-    if (type == Type.RGB) {
-      throw new RuntimeException("toI420 for RGB frames not implemented yet");
-    }
-    // SurfaceTextureHelper requires a stride that is divisible by 8.  Round width up.
-    // See SurfaceTextureHelper for details on the size and format.
-    int stride = ((width + 7) / 8) * 8;
-    int uvHeight = (height + 1) / 2;
-    // Due to the layout used by SurfaceTextureHelper, vPos + stride * uvHeight would overrun the
-    // buffer.  Add one row at the bottom to compensate for this.  There will never be data in the
-    // extra row, but now other code does not have to deal with v stride * v height exceeding the
-    // buffer's capacity.
-    int size = stride * (height + uvHeight + 1);
-    ByteBuffer buffer = ByteBuffer.allocateDirect(size);
-    surfaceTextureHelper.textureToYUV(buffer, width, height, stride, id,
-        RendererCommon.convertMatrixFromAndroidGraphicsMatrix(transformMatrix));
-
-    int yPos = 0;
-    int uPos = yPos + stride * height;
-    // Rows of U and V alternate in the buffer, so V data starts after the first row of U.
-    int vPos = uPos + stride / 2;
-
-    buffer.position(yPos);
-    buffer.limit(yPos + stride * height);
-    ByteBuffer dataY = buffer.slice();
-
-    buffer.position(uPos);
-    buffer.limit(uPos + stride * uvHeight);
-    ByteBuffer dataU = buffer.slice();
-
-    buffer.position(vPos);
-    buffer.limit(vPos + stride * uvHeight);
-    ByteBuffer dataV = buffer.slice();
-
-    // SurfaceTextureHelper uses the same stride for Y, U, and V data.
-    return JavaI420Buffer.wrap(width, height, dataY, stride, dataU, stride, dataV, stride, null);
+    return ThreadUtils.invokeAtFrontUninterruptibly(
+        toI420Handler, () -> yuvConverter.convert(this));
   }
 
   @Override
   public void retain() {
-    synchronized (refCountLock) {
-      ++refCount;
-    }
+    refCountMonitor.onRetain(this);
+    refCountDelegate.retain();
   }
 
   @Override
   public void release() {
-    synchronized (refCountLock) {
-      if (--refCount == 0 && releaseCallback != null) {
-        releaseCallback.run();
-      }
-    }
+    refCountMonitor.onRelease(this);
+    refCountDelegate.release();
   }
 
   @Override
   public VideoFrame.Buffer cropAndScale(
       int cropX, int cropY, int cropWidth, int cropHeight, int scaleWidth, int scaleHeight) {
-    retain();
-    Matrix newMatrix = new Matrix(transformMatrix);
-    newMatrix.postScale(cropWidth / (float) width, cropHeight / (float) height);
-    newMatrix.postTranslate(cropX / (float) width, cropY / (float) height);
+    final Matrix cropAndScaleMatrix = new Matrix();
+    // In WebRTC, Y=0 is the top row, while in OpenGL Y=0 is the bottom row. This means that the Y
+    // direction is effectively reversed.
+    final int cropYFromBottom = height - (cropY + cropHeight);
+    cropAndScaleMatrix.preTranslate(cropX / (float) width, cropYFromBottom / (float) height);
+    cropAndScaleMatrix.preScale(cropWidth / (float) width, cropHeight / (float) height);
 
-    return new TextureBufferImpl(
-        scaleWidth, scaleHeight, type, id, newMatrix, surfaceTextureHelper, new Runnable() {
+    return applyTransformMatrix(cropAndScaleMatrix,
+        (int) Math.round(unscaledWidth * cropWidth / (float) width),
+        (int) Math.round(unscaledHeight * cropHeight / (float) height), scaleWidth, scaleHeight);
+  }
+
+  /**
+   * Returns the width of the texture in memory. This should only be used for downscaling, and you
+   * should still respect the width from getWidth().
+   */
+  public int getUnscaledWidth() {
+    return unscaledWidth;
+  }
+
+  /**
+   * Returns the height of the texture in memory. This should only be used for downscaling, and you
+   * should still respect the height from getHeight().
+   */
+  public int getUnscaledHeight() {
+    return unscaledHeight;
+  }
+
+  public Handler getToI420Handler() {
+    return toI420Handler;
+  }
+
+  public YuvConverter getYuvConverter() {
+    return yuvConverter;
+  }
+
+  /**
+   * Create a new TextureBufferImpl with an applied transform matrix and a new size. The
+   * existing buffer is unchanged. The given transform matrix is applied first when texture
+   * coordinates are still in the unmodified [0, 1] range.
+   */
+  public TextureBufferImpl applyTransformMatrix(
+      Matrix transformMatrix, int newWidth, int newHeight) {
+    return applyTransformMatrix(transformMatrix, /* unscaledWidth= */ newWidth,
+        /* unscaledHeight= */ newHeight, /* scaledWidth= */ newWidth,
+        /* scaledHeight= */ newHeight);
+  }
+
+  private TextureBufferImpl applyTransformMatrix(Matrix transformMatrix, int unscaledWidth,
+      int unscaledHeight, int scaledWidth, int scaledHeight) {
+    final Matrix newMatrix = new Matrix(this.transformMatrix);
+    newMatrix.preConcat(transformMatrix);
+    retain();
+    return new TextureBufferImpl(unscaledWidth, unscaledHeight, scaledWidth, scaledHeight, type, id,
+        newMatrix, toI420Handler, yuvConverter, new RefCountMonitor() {
           @Override
-          public void run() {
+          public void onRetain(TextureBufferImpl textureBuffer) {
+            refCountMonitor.onRetain(TextureBufferImpl.this);
+          }
+
+          @Override
+          public void onRelease(TextureBufferImpl textureBuffer) {
+            refCountMonitor.onRelease(TextureBufferImpl.this);
+          }
+
+          @Override
+          public void onDestroy(TextureBufferImpl textureBuffer) {
             release();
           }
         });
